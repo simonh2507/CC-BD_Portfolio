@@ -34,12 +34,10 @@ sequenceDiagram
 
     System->>User: Info: Driver hat bestätigt
 
-    rect rgb(240, 240, 240)
     Note over User,Driver: Während der Fahrt
     loop Regelmäßiges Tracking
         System->>System: Position aktualisieren & Fahrtfortschritt ermitteln
         System-->>User: Position und Fahrtfortschritt anzeigen
-    end
     end
 
     System->>User: Ankunft am Ziel anzeigen und Bezahlung anfordern
