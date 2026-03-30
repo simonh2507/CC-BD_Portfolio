@@ -55,6 +55,61 @@ sequenceDiagram
 ## Architektur
 
 ```mermaid
-graph TD
-    A[TODO: Microservices mit ihren Aufgaben darstellen und deren Flow ]
+flowchart TB
+    classDef k8s fill:transparent,stroke:#0ea5e9,stroke-width:2px,stroke-dasharray: 5 5
+    classDef kafkaCluster fill:transparent,stroke:#fb923c,stroke-width:2px,stroke-dasharray: 5 5
+    classDef invisible fill:transparent,stroke:none,font-weight:bold
+
+    classDef service fill:#3b82f6,stroke:#1e40af,stroke-width:2px,color:#fff,rx:5px,ry:5px
+    classDef topic fill:#f97316,stroke:#c2410c,stroke-width:2px,color:#fff
+    classDef actor fill:#14b8a6,stroke:#0f766e,stroke-width:2px,color:#fff,rx:20px,ry:20px
+
+    User("👤 User UI"):::actor
+    Driver("🧑‍✈️ Driver UI"):::actor
+
+    subgraph K8s ["☸️ Kubernetes Cluster"]
+
+        subgraph Services [" "]
+            S_Req("📱 Request Service"):::service
+            S_Price("💰 Pricing Service"):::service
+            S_GPS("📍 GPS Tracking"):::service
+            S_Driver("🧑‍✈️ Driver Service"):::service
+            S_Ride("🚗 Ride Status"):::service
+            S_Pay("💳 Payment"):::service
+        end
+
+        subgraph Kafka ["Kafka Cluster"]
+            T_Req{{"Topic: Request"}}:::topic
+            T_Ride{{"Topic: Ride"}}:::topic
+            T_RideComp{{"Topic: Ride Completion"}}:::topic
+            T_PayComp{{"Topic: Payment Completion"}}:::topic
+        end
+    end
+
+    class K8s k8s
+    class Kafka kafkaCluster
+    class Services invisible
+
+    User --> S_Req
+    User --> S_Ride
+    User --> S_Pay
+
+    Driver --> S_Driver
+    Driver --> S_Ride
+
+    S_Req -.->|REST| S_GPS
+    S_Req -.->|REST| S_Price
+    S_Ride -.->|REST| S_GPS
+
+    S_Req ===>|pub| T_Req
+    T_Req ===>|sub| S_Driver
+
+    S_Driver ===>|pub| T_Ride
+    T_Ride ===>|sub| S_Ride
+
+    S_Ride ===>|pub| T_RideComp
+    T_RideComp ===>|sub| S_Pay
+
+    S_Pay ===>|pub| T_PayComp
+    T_PayComp ===>|sub| S_Driver
 ```
