@@ -1,0 +1,67 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: request-service
+  labels:
+    app: request-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: request-service
+  template:
+    metadata:
+      labels:
+        app: request-service
+    spec:
+      containers:
+        - name: request-service
+          image: ghcr.io/simonh2507/request-service:latest
+          ports:
+            - containerPort: 80
+          env:
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              value: my-cluster-kafka-bootstrap.kafka.svc.cluster.local:9092
+            - name: KAFKA_TOPIC
+              value: rides.fct.riderequest.created
+            # TODO
+            # - name: RIDE_STATUS_URL
+            #   value:
+            # - name: PRICING_SERVICE_URL
+            #   value:
+            # - name: GPS_SERVICE_URL
+            #   value:
+          livenessProbe:
+            httpGet:
+              path: /ping
+              port: 80
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 80
+            initialDelaySeconds: 15
+            periodSeconds: 10
+
+          resources:
+            requests:
+              memory: 128Mi
+              cpu: 100m
+            limits:
+              memory: 256Mi
+              cpu: 250m
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: request-service
+  labels:
+    app: request-service
+spec:
+  selector:
+    app: request-service
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 80
