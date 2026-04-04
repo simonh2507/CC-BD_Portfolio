@@ -1,25 +1,34 @@
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import RedirectResponse
-from pydantic import BaseModel
-from confluent_kafka import KafkaError, Message, Producer
-import uuid
 import logging
-import json
+import sys
+import uuid
+from contextlib import asynccontextmanager
 
-import config
+from fastapi import FastAPI, HTTPException, Response, status
+from pydantic import BaseModel
+from uvicorn.logging import DefaultFormatter
 
-logging.basicConfig(level=logging.INFO)
+from . import config
+from .kafka_client import kafka_manager
+
+console_handler = logging.StreamHandler(sys.stdout)
+console_handler.setFormatter(
+    DefaultFormatter("%(levelprefix)s %(name)s | %(message)s")
+)  # like uvicorn
+
+logging.root.handlers = [console_handler]
+logging.root.setLevel(logging.INFO)
+
 logger = logging.getLogger(__name__)
 
-app = FastAPI()
 
-# ---- KAFKA CONNECTION ----
-try:
-    producer = Producer(config.PRODUCER_CONFIG)
-    logger.info("Successfully initialized Kafka Producer")
-except Exception as e:
-    logger.error(f"Failed to initialize Kafka Producer: {e}")
-    producer = None
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    kafka_manager.start()
+    yield
+    kafka_manager.stop()
+
+
+app = FastAPI(lifespan=lifespan)
 
 
 # ---- MODELS ----
@@ -29,55 +38,58 @@ class Request(BaseModel):
 
 
 # ---- ROUTES ----
+@app.get("/ping")
+def ping():
+    return {"status": "ok"}
+
+
 @app.get("/health")
-async def health_check():
-    kafka_status = "connected" if producer else "not_initialized"
+def health_check(response: Response):
+    kafka_up = kafka_manager.is_connected()
+    if not kafka_up:
+        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
     return {
-        "status": "ok", 
+        "status": "ok" if kafka_up else "degraded",
         "service": "request-service",
-        "kafka_status": kafka_status
+        "dependencies": {"kafka": "up" if kafka_up else "down"},
     }
 
-@app.post("/create_request")
-async def create_ride_request(request: Request) -> RedirectResponse:
-    if producer is None:
-        raise HTTPException(status_code=500, detail="Kafka Producer not initialized")
 
+@app.post("/ride-requests", status_code=status.HTTP_202_ACCEPTED)
+def create_ride_request(request: Request):
     ride_id = str(uuid.uuid4())
-    
+
     payload = {
         "ride_id": ride_id,
         "start": request.start,
-        "destination": request.destination
+        "destination": request.destination,
     }
 
-    delivery_error = None
-    # callback function
-    def delivery_report(err: KafkaError | None, _: Message):
-        nonlocal delivery_error
-        if err is not None:
-            delivery_error = err
     try:
-        producer.produce(
-            config.KAFKA_TOPIC, 
-            key=ride_id.encode('utf-8'), 
-            value=json.dumps(payload).encode('utf-8'),
-            on_delivery=delivery_report
+        kafka_manager.produce_message(
+            config.KAFKA_TOPIC,
+            key=ride_id,
+            payload=payload,
         )
-        
-        producer.flush()
-        
-        if delivery_error:
-            logger.error(f"Kafka delivery error for ride {ride_id}: {delivery_error}")
-            raise HTTPException(status_code=500, detail=f"Failed to queue ride request: {str(delivery_error)}")
-            
-        logger.info(f"Ride request {ride_id} successfully sent to Kafka topic {config.KAFKA_TOPIC}")
-        
-        redirect_url = f"{config.RIDE_STATUS_URL}/status/{ride_id}"
-        return RedirectResponse(url=redirect_url, status_code=303) # redirect after posting
+        logger.info(
+            f"Ride request {ride_id} successfully queued for Kafka topic {config.KAFKA_TOPIC}"
+        )
 
-    except HTTPException:
-        raise
+    except BufferError:
+        logger.error("Kafka local queue is full.")
+        raise HTTPException(status_code=503, detail="Service temporarily overloaded.")
     except Exception as e:
         logger.error(f"Unexpected error creating ride request: {e}")
-        raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"An unexpected error occurred: {str(e)}"
+        )
+
+    return {
+        "message": "Ride request accepted and queued.",
+        "ride_id": ride_id,
+        "_links": {
+            "status": {
+                "href": f"{config.RIDE_STATUS_URL}/status/{ride_id}",
+            }
+        },
+    }
