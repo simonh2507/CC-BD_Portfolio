@@ -7,6 +7,8 @@ from fastapi import FastAPI, HTTPException, Response, status
 from pydantic import BaseModel
 from uvicorn.logging import DefaultFormatter
 
+import httpx
+
 from . import config
 from .kafka_client import kafka_manager
 
@@ -53,6 +55,28 @@ def health_check(response: Response):
         "service": "request-service",
         "dependencies": {"kafka": "up" if kafka_up else "down"},
     }
+
+
+@app.get("/ride-info", status_code=status.HTTP_200_OK)
+async def get_ride_info(start: str, destination: str):
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.get(
+                f"{config.GPS_SERVICE_URL}/estimated-driving-time",
+                params={"origin": start, "destination": destination},
+            )
+            response.raise_for_status()
+            return response.json()
+        except httpx.HTTPStatusError as e:
+            logger.error(f"GPS service error: {e}")
+            raise HTTPException(
+                status_code=e.response.status_code, detail="Error from GPS service"
+            )
+        except httpx.RequestError as e:
+            logger.error(f"Could not connect to GPS service: {e}")
+            raise HTTPException(
+                status_code=503, detail="GPS service unavailable"
+            )
 
 
 @app.post("/ride-requests", status_code=status.HTTP_202_ACCEPTED)

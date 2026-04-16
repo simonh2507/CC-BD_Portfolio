@@ -24,13 +24,12 @@ spec:
               value: my-cluster-kafka-bootstrap.kafka.svc.cluster.local:9092
             - name: KAFKA_TOPIC
               value: rides.fct.riderequest.created
-            # TODO
-            # - name: RIDE_STATUS_URL
-            #   value:
-            # - name: PRICING_SERVICE_URL
-            #   value:
-            # - name: GPS_SERVICE_URL
-            #   value:
+            - name: RIDE_STATUS_URL
+              value: "http://ride-service:80"
+            - name: PRICING_SERVICE_URL
+              value: "http://pricing-service:80"
+            - name: GPS_SERVICE_URL
+              value: "http://gps-service:80"
           livenessProbe:
             httpGet:
               path: /ping
