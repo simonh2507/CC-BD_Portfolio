@@ -3,7 +3,7 @@ import os
 KAFKA_BOOTSTRAP_SERVERS = os.getenv(
     "KAFKA_BOOTSTRAP_SERVERS", "my-cluster-kafka-bootstrap:9092"
 )
-KAFKA_TOPIC = os.getenv("KAFKA_TOPIC", "Request")
+KAFKA_TOPIC = os.getenv("KAFKA_TOPIC", "rides.fct.riderequest.created")
 
 GPS_SERVICE_URL = os.getenv("GPS_SERVICE_URL", "http://gps-service:8000")
 PRICING_SERVICE_URL = os.getenv("PRICING_SERVICE_URL", "http://pricing-service:8000")
