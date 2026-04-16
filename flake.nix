@@ -22,6 +22,7 @@
                 fastapi
                 uvicorn
                 confluent-kafka
+                httpx
               ]))
           ];
 
