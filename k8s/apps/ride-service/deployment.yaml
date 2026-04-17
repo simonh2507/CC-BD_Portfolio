@@ -21,7 +21,17 @@ spec:
             - containerPort: 80
           env:
             - name: KAFKA_BOOTSTRAP_SERVERS
-              value: "my-cluster-kafka-bootstrap:9092"
+              value: my-cluster-kafka-bootstrap.kafka.svc.cluster.local:9092
+            - name: KAFKA_GROUP_ID
+              value: ride-service
+            - name: MONGO_URL
+              value: mongodb://mongodb.ride-sharing.svc.cluster.local:27017
+            - name: GPS_SERVICE_URL
+              value: http://gps-service:80
+            - name: KAFKA_TOPIC_RIDE_ACCEPTED
+              value: rides.fct.ride.accepted
+            - name: KAFKA_TOPIC_RIDE_COMPLETED
+              value: rides.fct.ride.completed
           livenessProbe:
             httpGet:
               path: /ping

@@ -1,0 +1,78 @@
+import json
+import logging
+import threading
+import time
+import requests
+from confluent_kafka import Consumer, KafkaException, KafkaError
+from . import config
+from .database import db_manager
+from .kafka_producer import kafka_producer
+
+logger = logging.getLogger(__name__)
+
+class KafkaConsumerManager:
+    def __init__(self, conf: dict) -> None:
+        self._conf = conf
+        self._consumer = None
+        self.running = False
+        self._thread = threading.Thread(target=self._consume_loop, daemon=True)
+
+    def start(self) -> None:
+        self._consumer = Consumer(self._conf)
+        self._consumer.subscribe([config.KAFKA_TOPIC_RIDE_ACCEPTED])
+        self.running = True
+        self._thread.start()
+        logger.info(f"Ride Service subscribed to [{config.KAFKA_TOPIC_RIDE_ACCEPTED}]")
+
+    def stop(self) -> None:
+        self.running = False
+        self._thread.join()
+        if self._consumer: self._consumer.close()
+
+    def _consume_loop(self) -> None:
+        while self.running:
+            try:
+                msg = self._consumer.poll(1.0)
+                if msg is None: continue
+                if msg.error():
+                    if msg.error().code() == KafkaError._PARTITION_EOF: continue
+                    raise KafkaException(msg.error())
+
+                raw_value = msg.value()
+                if raw_value is None: continue
+
+                payload = json.loads(raw_value.decode("utf-8"))
+                topic = msg.topic()
+                
+                if topic == config.KAFKA_TOPIC_RIDE_ACCEPTED:
+                    # Starte die Fahrtsimulation in einem eigenen Thread, 
+                    # damit Kafka nicht blockiert wird!
+                    threading.Thread(target=self._simulate_ride, args=(payload,), daemon=True).start()
+
+            except Exception as e:
+                logger.error(f"Consumer Error: {e}")
+
+    def _simulate_ride(self, payload: dict):
+        ride_id = payload.get("ride_id")
+        driver_id = payload.get("driver_id")
+        
+        logger.info(f"Ride {ride_id} ACTIVE with driver {driver_id}.")
+        db_manager.update_ride_status(ride_id, "ACTIVE", driver_id)
+        
+        # Simuliere die Dauer der Fahrt (z.B. GPS-Abfrage)
+        time.sleep(10) # 10 Sekunden fiktive Fahrzeit
+        
+        # Fahrt beendet
+        logger.info(f"Ride {ride_id} COMPLETED. Forwarding to Payment.")
+        db_manager.update_ride_status(ride_id, "COMPLETED")
+        
+        # Event an Payment Service schicken
+        # Hinweis: Wir faken hier einen fixen Preis von 15.50 für die Demo, 
+        # normalerweise käme der vom Pricing-Service.
+        kafka_producer.produce(
+            topic=config.KAFKA_TOPIC_RIDE_COMPLETED,
+            key=str(ride_id),
+            payload={"ride_id": ride_id, "driver_id": driver_id, "fare_amount": 15.50}
+        )
+
+kafka_consumer = KafkaConsumerManager(config.CONSUMER_CONFIG)
