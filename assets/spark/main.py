@@ -1,32 +1,54 @@
-from pyspark.sql import SparkSession
 import os
+from pyspark.sql import SparkSession
+from pyspark.sql import functions as F
+from dotenv import load_dotenv
+from pymongo import MongoClient
+import pandas as pd
 
-# custom CA certificate
+load_dotenv()
+TOKEN = os.getenv("SPARK_TOKEN")
+
+if not TOKEN:
+    raise ValueError("SPARK_TOKEN wurde in der .env Datei nicht gefunden!")
+
 os.environ["GRPC_DEFAULT_SSL_ROOTS_FILE_PATH"] = "spark-server.pem"
+connection_string = f"sc://10.3.15.18:15011/;token={TOKEN};use_ssl=true"
 
-# The connection string uses the 'sc://' scheme.
-# Format: sc://<host>:<port>/;token=<auth_token>
-# Port: 1501<GROUP_NUMBER> (e.g., 15011 for group 1, 15012 for group 2, etc.)
-connection_string = "sc://10.3.15.18:<REPLACE_WITH_GROUP_PORT>/;token=<REPLACE_WITH_TOKEN>;use_ssl=true"
+spark = SparkSession.builder.remote(connection_string).getOrCreate()
+print(f"Spark Version: {spark.version}")
 
-# Initialize the Spark Session via Spark Connect
-spark = SparkSession.builder \
-    .remote(connection_string) \
-    .getOrCreate()
+mongo_client = MongoClient("mongodb://localhost:27017")
+db = mongo_client["db_payment"]
+payments_collection = db["payments"]
 
-# --- Test the Connection ---
+payment_docs = list(payments_collection.find({}, {"_id": 0}))
 
-# 1. Print the Spark version
-print(f"Connected to Spark version: {spark.version}")
+if not payment_docs:
+    print("Keine Zahlungen in der Datenbank gefunden! Bitte führe erst ein paar Fahrten durch.")
+    spark.stop()
+    exit()
 
-# 2. Create a simple DataFrame and show it
-data = [("Alice", 28), ("Bob", 35), ("Charlie", 22)]
-columns = ["Name", "Age"]
-
-df = spark.createDataFrame(data, columns)
-
-print("\nSample DataFrame:")
+pdf = pd.DataFrame(payment_docs)
+df = spark.createDataFrame(pdf)
+print("\n--- Rohdaten ---")
 df.show()
 
-# Clean up the session when done
+analytics_df = df.groupBy("status").agg(
+    F.count("ride_id").alias("total_rides"),
+    F.sum("amount").alias("total_revenue"),
+    F.avg("amount").alias("average_price")
+)
+
+print("\n--- Berechnete Kennzahlen ---")
+analytics_df.show()
+
+print("Speichere Ergebnisse in MongoDB Collection 'analytics_results'...")
+results_pandas = analytics_df.toPandas()
+results_dict = results_pandas.to_dict(orient="records")
+
+analytics_collection = db["analytics_results"]
+analytics_collection.delete_many({})
+analytics_collection.insert_many(results_dict)
+
+print("Fertig! Big Data Job erfolgreich abgeschlossen.")
 spark.stop()
