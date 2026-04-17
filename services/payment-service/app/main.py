@@ -1,30 +1,54 @@
-from contextlib import asynccontextmanager
-from fastapi import FastAPI, HTTPException
 import logging
-from .kafka_worker import payment_worker
+import sys
+from contextlib import asynccontextmanager
+from fastapi import FastAPI, HTTPException, Response, status
+from uvicorn.logging import DefaultFormatter
 
-logging.basicConfig(level=logging.INFO)
+from .kafka_consumer import kafka_consumer
+from .kafka_producer import kafka_producer
+from .database import db_manager
+
+console_handler = logging.StreamHandler(sys.stdout)
+console_handler.setFormatter(DefaultFormatter("%(levelprefix)s %(name)s | %(message)s"))
+logging.root.handlers = [console_handler]
+logging.root.setLevel(logging.INFO)
+
 logger = logging.getLogger(__name__)
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
-    logger.info("Starting Payment Service and Kafka Worker...")
-    payment_worker.start()
+async def lifespan(_: FastAPI):
+    kafka_producer.start()
+    kafka_consumer.start()
     yield
-    logger.info("Shutting down Kafka Worker...")
-    payment_worker.stop()
+    kafka_consumer.stop()
+    kafka_producer.stop()
 
-app = FastAPI(lifespan=lifespan)
+app = FastAPI(title="Payment Service", lifespan=lifespan)
 
-@app.get("/payments/{ride_id}")
-def get_payment_status(ride_id: str):
-    record = payment_worker.collection.find_one({"ride_id": ride_id})
-    if not record:
-        raise HTTPException(status_code=404, detail="Payment not found or still processing")
-    
-    record.pop("_id", None)
-    return record
+@app.get("/ping")
+def ping():
+    return {"status": "ok"}
 
 @app.get("/health")
-def health():
-    return {"status": "ok", "db_connected": payment_worker.db_client.admin.command('ping')['ok'] == 1.0}
+def health_check(response: Response):
+    kafka_up = kafka_producer.is_connected()
+    db_up = db_manager.is_connected()
+    
+    if not (kafka_up and db_up):
+        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+        
+    return {
+        "status": "ok" if (kafka_up and db_up) else "degraded",
+        "service": "payment-service",
+        "dependencies": {
+            "kafka": "up" if kafka_up else "down",
+            "mongodb": "up" if db_up else "down"
+        },
+    }
+
+@app.get("/payments/{ride_id}")
+def get_payment(ride_id: str):
+    payment = db_manager.get_payment(ride_id)
+    if not payment:
+        raise HTTPException(status_code=404, detail=f"Payment for ride '{ride_id}' not found.")
+    return payment
