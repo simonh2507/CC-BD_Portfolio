@@ -1,0 +1,88 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: driver-service
+  labels:
+    app: driver-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: driver-service
+  template:
+    metadata:
+      labels:
+        app: driver-service
+    spec:
+      initContainers:
+        # Wait for MongoDB to accept connections before starting the service
+        - name: wait-for-db
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              until nc -z driver-db 27017; do
+                echo "Waiting for MongoDB on driver-db:27017..."; sleep 2;
+              done
+      containers:
+        - name: driver-service
+          image: ghcr.io/simonh2507/driver-service:latest
+          ports:
+            - containerPort: 80
+          env:
+            # MongoDB
+            - name: MONGODB_URL
+              valueFrom:
+                secretKeyRef:
+                  name: driver-db-secret
+                  key: mongodb-url
+            - name: MONGODB_DB_NAME
+              value: driverdb
+            # Kafka
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              value: my-cluster-kafka-bootstrap.kafka.svc.cluster.local:9092
+            - name: KAFKA_GROUP_ID
+              value: driver-service
+            - name: KAFKA_TOPIC_RIDE_REQUEST
+              value: rides.fct.riderequest.created
+            - name: KAFKA_TOPIC_PAYMENT_COMPLETED
+              value: rides.fct.payment.completed
+            - name: KAFKA_TOPIC_PAYMENT_FAILED
+              value: rides.fct.payment.failed
+            - name: KAFKA_TOPIC_RIDE_ACCEPTED
+              value: rides.fct.ride.accepted
+          livenessProbe:
+            httpGet:
+              path: /ping
+              port: 80
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 80
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          resources:
+            requests:
+              memory: 128Mi
+              cpu: 100m
+            limits:
+              memory: 256Mi
+              cpu: 250m
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: driver-service
+  labels:
+    app: driver-service
+spec:
+  selector:
+    app: driver-service
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 80
+
