@@ -8,3 +8,4 @@ resources:
   - apps/request-service-sync.yaml
   - apps/ride-service-sync.yaml
   - apps/payment-service-sync.yaml
+  - apps/mongodb-sync.yaml
