@@ -1,0 +1,67 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payment-service
+  labels:
+    app: payment-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: payment-service
+  template:
+    metadata:
+      labels:
+        app: payment-service
+    spec:
+      containers:
+        - name: payment-service
+          image: ghcr.io/simonh2507/payment-service:latest
+          ports:
+            - containerPort: 80
+          env:
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              value: my-cluster-kafka-bootstrap.kafka.svc.cluster.local:9092
+            - name: KAFKA_GROUP_ID
+              value: payment-service
+            - name: MONGO_URL
+              value: mongodb://mongodb.ride-sharing.svc.cluster.local:27017
+            - name: KAFKA_TOPIC_RIDE_COMPLETED
+              value: rides.fct.ride.completed
+            - name: KAFKA_TOPIC_PAYMENT_COMPLETED
+              value: rides.fct.payment.completed
+            - name: KAFKA_TOPIC_PAYMENT_FAILED
+              value: rides.fct.payment.failed
+          livenessProbe:
+            httpGet:
+              path: /ping
+              port: 80
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 80
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          resources:
+            requests:
+              memory: 32Mi
+              cpu: 10m
+            limits:
+              memory: 64Mi
+              cpu: 50m
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: payment-service
+  labels:
+    app: payment-service
+spec:
+  selector:
+    app: payment-service
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 80
