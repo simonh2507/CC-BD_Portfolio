@@ -75,7 +75,7 @@ async def get_ride_info(start: str, destination: str):
             )    
             pricing_response.raise_for_status()
             pricing_data = pricing_response.json()
-            final_price = pricing_data.get("price")
+            final_price = pricing_data.get("price_euro")
 
             return {
                 "start": start,
