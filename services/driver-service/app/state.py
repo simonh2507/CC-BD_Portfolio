@@ -1,84 +1,96 @@
-import threading
+import logging
 from typing import Optional
 
-_lock = threading.Lock()
+from . import database
 
-# Pre-seeded mock driver fleet
-_drivers: dict[str, dict] = {
-    "driver-1": {"name": "Anna Müller",  "status": "available", "current_ride_id": None},
-    "driver-2": {"name": "Ben Schmidt",  "status": "available", "current_ride_id": None},
-    "driver-3": {"name": "Clara Weber",  "status": "available", "current_ride_id": None},
-}
-
-# ride_id -> original ride-request payload (set when request arrives via Kafka)
-_pending_requests: dict[str, dict] = {}
+logger = logging.getLogger(__name__)
 
 
-# ---- Driver helpers ----
+# ---------------------------------------------------------------------------
+# Driver helpers
+# ---------------------------------------------------------------------------
 
-def get_first_available_driver() -> Optional[str]:
+async def get_first_available_driver() -> Optional[str]:
     """Return the driver_id of the first available driver, or None."""
-    with _lock:
-        for driver_id, info in _drivers.items():
-            if info["status"] == "available":
-                return driver_id
-    return None
+    doc = await database.db.drivers.find_one({"status": "available"})
+    return doc["driver_id"] if doc else None
 
 
-def assign_driver(driver_id: str, ride_id: str) -> bool:
+async def assign_driver(driver_id: str, ride_id: str) -> bool:
     """
-    Mark a driver as on-ride atomically.
-    Returns False if the driver is no longer available (race condition guard).
+    Atomically transition a driver from 'available' → 'on_ride'.
+
+    The filter includes status='available', so if two concurrent requests
+    race, only one will match and the second will receive None → returns False.
+    No application-level lock required.
     """
-    with _lock:
-        if _drivers[driver_id]["status"] != "available":
-            return False
-        _drivers[driver_id]["status"] = "on_ride"
-        _drivers[driver_id]["current_ride_id"] = ride_id
-        return True
+    result = await database.db.drivers.find_one_and_update(
+        {"driver_id": driver_id, "status": "available"},
+        {"$set": {"status": "on_ride", "current_ride_id": ride_id}},
+    )
+    return result is not None
 
 
-def release_driver_by_ride(ride_id: str) -> Optional[str]:
+async def release_driver_by_ride(ride_id: str) -> Optional[str]:
     """
     Free whichever driver is currently assigned to ride_id.
-    Returns the released driver_id, or None if not found.
+    Called both on the SAGA happy-path (payment completed) and on the
+    compensating transaction (payment failed).
+    Returns the released driver_id, or None if no match found.
     """
-    with _lock:
-        for driver_id, info in _drivers.items():
-            if info["current_ride_id"] == ride_id:
-                info["status"] = "available"
-                info["current_ride_id"] = None
-                return driver_id
+    result = await database.db.drivers.find_one_and_update(
+        {"current_ride_id": ride_id},
+        {"$set": {"status": "available", "current_ride_id": None}},
+    )
+    if result:
+        released_id = result["driver_id"]
+        logger.info(
+            f"Driver '{released_id}' released from ride '{ride_id}' "
+            f"→ status set to 'available'."
+        )
+        return released_id
     return None
 
 
-def get_driver(driver_id: str) -> Optional[dict]:
-    with _lock:
-        return dict(_drivers.get(driver_id, {})) or None
+async def get_driver(driver_id: str) -> Optional[dict]:
+    """Return a single driver document (without Mongo _id), or None."""
+    return await database.db.drivers.find_one(
+        {"driver_id": driver_id}, {"_id": 0}
+    )
 
 
-def get_all_drivers() -> dict[str, dict]:
-    with _lock:
-        return {k: dict(v) for k, v in _drivers.items()}
+async def get_all_drivers() -> dict[str, dict]:
+    """Return all driver documents keyed by driver_id."""
+    cursor = database.db.drivers.find({}, {"_id": 0})
+    return {d["driver_id"]: d async for d in cursor}
 
 
-# ---- Pending request helpers ----
+# ---------------------------------------------------------------------------
+# Pending request helpers
+# ---------------------------------------------------------------------------
 
-def add_pending_request(ride_id: str, payload: dict) -> None:
-    with _lock:
-        _pending_requests[ride_id] = payload
+async def add_pending_request(ride_id: str, payload: dict) -> None:
+    """
+    Persist a new pending ride request. Uses $setOnInsert so duplicate
+    Kafka deliveries (at-least-once) do not overwrite the existing document.
+    """
+    await database.db.pending_requests.update_one(
+        {"ride_id": ride_id},
+        {"$setOnInsert": payload},
+        upsert=True,
+    )
 
 
-def get_pending_request(ride_id: str) -> Optional[dict]:
-    with _lock:
-        return _pending_requests.get(ride_id)
+async def get_pending_request(ride_id: str) -> Optional[dict]:
+    return await database.db.pending_requests.find_one(
+        {"ride_id": ride_id}, {"_id": 0}
+    )
 
 
-def remove_pending_request(ride_id: str) -> None:
-    with _lock:
-        _pending_requests.pop(ride_id, None)
+async def remove_pending_request(ride_id: str) -> None:
+    await database.db.pending_requests.delete_one({"ride_id": ride_id})
 
 
-def get_all_pending_requests() -> dict[str, dict]:
-    with _lock:
-        return dict(_pending_requests)
+async def get_all_pending_requests() -> dict[str, dict]:
+    cursor = database.db.pending_requests.find({}, {"_id": 0})
+    return {r["ride_id"]: r async for r in cursor}

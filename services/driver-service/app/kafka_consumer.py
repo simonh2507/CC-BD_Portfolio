@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import threading
@@ -10,57 +11,50 @@ logger = logging.getLogger(__name__)
 
 
 class KafkaConsumerManager:
-    """
-    Background Kafka consumer subscribing to:
-      - rides.fct.riderequest.created  → store pending ride; find and notify available driver
-      - rides.fct.payment.completed    → SAGA happy-path: release driver
-    """
-
     def __init__(self, conf: dict) -> None:
         self._conf = conf
         self._consumer: Consumer | None = None
         self.running = False
-        self._thread = threading.Thread(target=self._consume_loop, daemon=True)
+        self._thread = threading.Thread(target=self._thread_entry, daemon=True)
 
     def start(self) -> None:
-        self._consumer = Consumer(self._conf)
-        self._consumer.subscribe(
-            [
-                config.KAFKA_TOPIC_RIDE_REQUEST,
-                config.KAFKA_TOPIC_PAYMENT_COMPLETED,
-            ]
-        )
         self.running = True
         self._thread.start()
         logger.info(
-            f"Kafka consumer started, subscribed to: "
+            "Kafka consumer started, subscribed to: "
             f"[{config.KAFKA_TOPIC_RIDE_REQUEST}, "
             f"{config.KAFKA_TOPIC_PAYMENT_COMPLETED}, "
+            f"{config.KAFKA_TOPIC_PAYMENT_FAILED}]"
         )
 
     def stop(self) -> None:
         self.running = False
         self._thread.join()
-        if self._consumer:
-            self._consumer.close()
         logger.info("Kafka consumer stopped.")
 
-    def is_subscribed(self) -> bool:
+    # ------------------------------------------------------------------
+    # Thread entry — owns its own asyncio event loop
+    # ------------------------------------------------------------------
+
+    def _thread_entry(self) -> None:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
         try:
-            if self._consumer is None:
-                return False
-            assignment = self._consumer.assignment()
-            return len(assignment) > 0
-        except Exception:
-            return False
+            loop.run_until_complete(self._consume_loop())
+        finally:
+            loop.close()
 
-    # ------------------------------------------------------------------ #
-    #  Internal                                                            #
-    # ------------------------------------------------------------------ #
-
-    def _consume_loop(self) -> None:
-        while self.running:
-            try:
+    async def _consume_loop(self) -> None:
+        self._consumer = Consumer(self._conf)
+        self._consumer.subscribe(
+            [
+                config.KAFKA_TOPIC_RIDE_REQUEST,
+                config.KAFKA_TOPIC_PAYMENT_COMPLETED,
+                config.KAFKA_TOPIC_PAYMENT_FAILED,
+            ]
+        )
+        try:
+            while self.running:
                 msg = self._consumer.poll(timeout=1.0)
                 if msg is None:
                     continue
@@ -70,54 +64,103 @@ class KafkaConsumerManager:
                     raise KafkaException(msg.error())
 
                 topic = msg.topic()
-                payload = json.loads(msg.value().decode("utf-8"))
-                logger.info(f"Received message on topic '{topic}': {payload}")
+                try:
+                    payload = json.loads(msg.value().decode("utf-8"))
+                    logger.info(f"Received on topic '{topic}': {payload}")
 
-                if topic == config.KAFKA_TOPIC_RIDE_REQUEST:
-                    self._handle_ride_request(payload)
-                elif topic == config.KAFKA_TOPIC_PAYMENT_COMPLETED:
-                    self._handle_payment_completed(payload)
+                    if topic == config.KAFKA_TOPIC_RIDE_REQUEST:
+                        await self._handle_ride_request(payload)
+                    elif topic == config.KAFKA_TOPIC_PAYMENT_COMPLETED:
+                        await self._handle_payment_completed(payload)
+                    elif topic == config.KAFKA_TOPIC_PAYMENT_FAILED:
+                        await self._handle_payment_failed(payload)
 
-            except KafkaException as e:
-                logger.error(f"Kafka consumer error: {e}")
-            except Exception as e:
-                logger.error(f"Unexpected error in consumer loop: {e}")
+                except Exception as e:
+                    logger.error(
+                        f"Error processing message from topic '{topic}': {e}"
+                    )
+        finally:
+            self._consumer.close()
 
-    def _handle_ride_request(self, payload: dict) -> None:
+    # ------------------------------------------------------------------
+    # Handlers
+    # ------------------------------------------------------------------
+
+    async def _handle_ride_request(self, payload: dict) -> None:
         """
-        A new ride request has been published.
-        Store it as a pending request so a driver can accept it via REST.
-        We do NOT auto-assign here — the driver explicitly calls POST /rides/{ride_id}/accept.
+        Persist an incoming ride request to MongoDB as a pending request.
+        The driver explicitly accepts via POST /rides/{ride_id}/accept.
+        Duplicate deliveries are safe: add_pending_request uses $setOnInsert.
         """
         ride_id = payload.get("ride_id")
         if not ride_id:
-            logger.warning("Received ride request without ride_id — skipping.")
+            logger.warning("Ride request event missing ride_id — skipping.")
             return
 
-        state.add_pending_request(ride_id, payload)
-        available = state.get_first_available_driver()
+        await state.add_pending_request(ride_id, payload)
+
+        available = await state.get_first_available_driver()
         logger.info(
-            f"New ride request queued: ride_id={ride_id}. "
+            f"Ride request '{ride_id}' persisted. "
             f"First available driver: {available or 'none'}"
         )
 
-    def _handle_payment_completed(self, payload: dict) -> None:
-        """SAGA happy-path: payment succeeded → release driver."""
+    async def _handle_payment_completed(self, payload: dict) -> None:
+        """
+        SAGA happy-path: payment succeeded.
+        Release the driver assigned to this ride back to 'available'.
+        """
         ride_id = payload.get("ride_id")
         if not ride_id:
-            logger.warning("Payment completed event missing ride_id.")
+            logger.warning("Payment completed event missing ride_id — skipping.")
             return
 
-        released = state.release_driver_by_ride(ride_id)
-        state.remove_pending_request(ride_id)
+        released = await state.release_driver_by_ride(ride_id)
         if released:
             logger.info(
-                f"Payment completed for ride {ride_id}. "
-                f"Driver {released} is now available again."
+                f"[SAGA happy-path] Payment completed for ride '{ride_id}'. "
+                f"Driver '{released}' is available again."
             )
         else:
             logger.warning(
-                f"Payment completed for ride {ride_id} but no driver found to release."
+                f"[SAGA happy-path] Payment completed for ride '{ride_id}' "
+                f"but no assigned driver found in MongoDB."
+            )
+
+    async def _handle_payment_failed(self, payload: dict) -> None:
+        """
+        SAGA compensating transaction: payment failed.
+
+        This service's compensation step is to release the driver back to
+        'available' so they are not permanently blocked by a failed ride.
+
+        The ride-status-service independently compensates on the same event
+        by setting the ride status to 'cancelled' in PostgreSQL.
+
+        Both compensations are idempotent — safe to re-process if the event
+        is delivered more than once (at-least-once Kafka semantics).
+        """
+        ride_id = payload.get("ride_id")
+        if not ride_id:
+            logger.warning("Payment failed event missing ride_id — skipping.")
+            return
+
+        logger.warning(
+            f"[SAGA compensation] Payment failed for ride '{ride_id}'. "
+            f"Initiating compensating transaction: releasing driver."
+        )
+
+        released = await state.release_driver_by_ride(ride_id)
+
+        if released:
+            logger.info(
+                f"[SAGA compensation] Driver '{released}' released from ride '{ride_id}'. "
+                f"Driver status reset to 'available'."
+            )
+        else:
+            logger.warning(
+                f"[SAGA compensation] No driver found for ride '{ride_id}' in MongoDB. "
+                f"Compensation is a no-op (possibly already released or never assigned)."
             )
 
 

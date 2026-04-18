@@ -1,6 +1,10 @@
 import os
 
-# Kafka connection
+# ---- MongoDB ----
+MONGODB_URL = os.getenv("MONGODB_URL", "mongodb://driver-db:27017")
+MONGODB_DB_NAME = os.getenv("MONGODB_DB_NAME", "driverdb")
+
+# ---- Kafka ----
 KAFKA_BOOTSTRAP_SERVERS = os.getenv(
     "KAFKA_BOOTSTRAP_SERVERS", "my-cluster-kafka-bootstrap:9092"
 )
@@ -12,6 +16,9 @@ KAFKA_TOPIC_RIDE_REQUEST = os.getenv(
 )
 KAFKA_TOPIC_PAYMENT_COMPLETED = os.getenv(
     "KAFKA_TOPIC_PAYMENT_COMPLETED", "rides.fct.payment.completed"
+)
+KAFKA_TOPIC_PAYMENT_FAILED = os.getenv(
+    "KAFKA_TOPIC_PAYMENT_FAILED", "rides.fct.payment.failed"
 )
 
 # Topics produced

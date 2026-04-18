@@ -14,7 +14,8 @@ def _delivery_report(err: KafkaError | None, msg: Message) -> None:
         logger.error(f"Kafka delivery error: {err}")
     else:
         logger.debug(
-            f"Message delivered to {msg.topic()} [{msg.partition()}] @ offset {msg.offset()}"
+            f"Message delivered to {msg.topic()} "
+            f"[partition {msg.partition()}] @ offset {msg.offset()}"
         )
 
 
@@ -32,7 +33,7 @@ class KafkaProducerManager:
     def stop(self) -> None:
         self.running = False
         self._poll_thread.join()
-        logger.info("Flushing Kafka producer...")
+        logger.info("Flushing Kafka producer on shutdown...")
         self.producer.flush(15)
 
     def _poll_loop(self) -> None:
