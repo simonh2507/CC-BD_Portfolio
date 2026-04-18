@@ -2,7 +2,6 @@ import json
 import logging
 import threading
 import time
-import requests
 from confluent_kafka import Consumer, KafkaException, KafkaError
 from . import config
 from .database import db_manager
