@@ -7,3 +7,6 @@ resources:
   - apps/pricing-service-sync.yaml
   - apps/request-service-sync.yaml
   - apps/driver-service-sync.yaml
+  - apps/ride-service-sync.yaml
+  - apps/payment-service-sync.yaml
+  - apps/mongodb-sync.yaml
