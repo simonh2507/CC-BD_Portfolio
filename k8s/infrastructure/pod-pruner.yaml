@@ -1,4 +1,5 @@
 # Wir haben nur 10GB! storage auf diesem Node. Das ist extrem wenig und der Cluster evicted die ganze Zeit die Pods weil der Node mit "Disk Pressure" tainted wird. Manchmal kommt es zu mehreren tausenden stale Pods über die Nacht.
+# Außerdem läuft irgendwas voll. Ich nehme an es sind die Logs. Ich lösche sie alle 6 Stunden
 
 apiVersion: v1
 kind: ServiceAccount
@@ -34,13 +35,37 @@ metadata:
   name: pod-pruner
   namespace: kube-system
 spec:
-  schedule: "*/10 * * * *"
+  schedule: "0 */6 * * *"
   concurrencyPolicy: Forbid
   jobTemplate:
     spec:
       template:
         spec:
           serviceAccountName: pod-pruner
+
+          # job runs on disk pressure
+          priorityClassName: system-node-critical
+          tolerations:
+            - key: "node.kubernetes.io/disk-pressure"
+              operator: "Exists"
+              effect: "NoSchedule"
+
+          initContainers:
+            - name: log-cleaner
+              image: alpine:latest
+              securityContext:
+                runAsUser: 0 # for root access
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  echo "Cleaning up host container logs..."
+                  find /host/var/log/pods/ -name '*.log' -exec truncate -s 0 {} \;
+                  find /host/var/log/containers/ -name '*.log' -exec truncate -s 0 {} \;
+              volumeMounts:
+                - name: host-logs
+                  mountPath: /host/var/log
+
           containers:
             - name: pruner
               image: bitnami/kubectl:latest
@@ -51,4 +76,11 @@ spec:
                   echo "Pruning failed and succeeded pods..."
                   kubectl delete pods -A --field-selector=status.phase=Failed --wait=false
                   kubectl delete pods -A --field-selector=status.phase=Succeeded --wait=false
+
           restartPolicy: OnFailure
+
+          volumes:
+            - name: host-logs
+              hostPath:
+                # path for logs on node
+                path: /var/log
