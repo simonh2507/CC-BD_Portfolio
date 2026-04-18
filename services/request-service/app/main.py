@@ -66,7 +66,24 @@ async def get_ride_info(start: str, destination: str):
                 params={"origin": start, "destination": destination},
             )
             response.raise_for_status()
-            return response.json()
+            gps_data = response.json()
+            ride_time_seconds = gps_data.get("estimated_seconds")
+
+            pricing_response = await client.get(
+                f"{config.PRICING_SERVICE_URL}/calculate-price",
+                params={"ride_time_seconds":ride_time_seconds},
+            )    
+            pricing_response.raise_for_status()
+            pricing_data = pricing_response.json()
+            final_price = pricing_data.get("price")
+
+            return {
+                "start": start,
+                "destination": destination,
+                "ride_time_seconds": ride_time_seconds,
+                "price": final_price
+            }
+        
         except httpx.HTTPStatusError as e:
             logger.error(f"GPS service error: {e}")
             raise HTTPException(
@@ -77,6 +94,9 @@ async def get_ride_info(start: str, destination: str):
             raise HTTPException(
                 status_code=503, detail="GPS service unavailable"
             )
+        except httpx.HTTPStatusError as e:
+            logger.error(f"Pricing service error: {e}")
+            raise HTTPException(status_code=e.response.status_code, detail="Error from Pricing service")
 
 
 @app.post("/ride-requests", status_code=status.HTTP_202_ACCEPTED)
