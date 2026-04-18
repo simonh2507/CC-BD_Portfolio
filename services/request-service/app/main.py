@@ -58,7 +58,7 @@ def health_check(response: Response):
 
 
 @app.get("/ride-info", status_code=status.HTTP_200_OK)
-async def get_ride_info(start: str, destination: str, price: float):
+async def get_ride_info(start: str, destination: str):
     async with httpx.AsyncClient() as client:
         try:
             response = await client.get(
@@ -66,11 +66,12 @@ async def get_ride_info(start: str, destination: str, price: float):
                 params={"origin": start, "destination": destination},
             )
             response.raise_for_status()
-            
-            ride_time_seconds = 0
+            gps_data = response.json()
+            ride_time_seconds = gps_data.get("estimated_seconds")
+
             pricing_response = await client.get(
                 f"{config.PRICING_SERVICE_URL}/calculate-price",
-                params={"ride_time_seconds":ride_time_seconds,"price_euro": price},
+                params={"ride_time_seconds":ride_time_seconds},
             )    
             pricing_response.raise_for_status()
             pricing_data = pricing_response.json()
@@ -79,6 +80,7 @@ async def get_ride_info(start: str, destination: str, price: float):
             return {
                 "start": start,
                 "destination": destination,
+                "ride_time_seconds": ride_time_seconds,
                 "price": final_price
             }
         
