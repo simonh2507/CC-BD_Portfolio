@@ -67,9 +67,10 @@ async def get_ride_info(start: str, destination: str, price: float):
             )
             response.raise_for_status()
             
+            ride_time_seconds = 0
             pricing_response = await client.get(
                 f"{config.PRICING_SERVICE_URL}/calculate-price",
-                params={"ride_time_seconds":None,"price_euro": price},
+                params={"ride_time_seconds":ride_time_seconds,"price_euro": price},
             )    
             pricing_response.raise_for_status()
             pricing_data = pricing_response.json()
