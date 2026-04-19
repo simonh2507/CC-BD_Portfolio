@@ -1,4 +1,9 @@
 *kubeconfig.yaml
+*.png
+*.typ
+*.mp4
+*.pdf
+speaker_notes.md
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

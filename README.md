@@ -2,7 +2,7 @@
 
 Smart Mobility Plattform: Microservice-basiertes Ride-Sharing-System (Uber-Stil). Kernfeatures: SAGA-Transaktionen mit Compensation, synchrone/event-basierte Kommunikation. Orchestriert via Kubernetes inkl. Docker-Containerisierung, Zero-Downtime Updates und dedizierter Datenbank-Deployments.
 
-## User stories
+## 1. User stories
 
 ### User Story 1 & 2
 
@@ -52,7 +52,9 @@ sequenceDiagram
 >
 > > Das System analysiert regelmäßig historische Daten (z.B. Fahrten der letzten 24h) in einem Batch-Job. Die Ergebnisse werden in einer NoSQL-Datenbank gespeichert und können von anderen Services (z.B. Pricing) abgefragt werden.
 
-## Architektur
+## 2. Architektur
+
+> Die Plattform besteht aus spezialisierten Microservices, die über ein hybrides Kommunikationsmodell (Synchron/Asynchron) interagieren.
 
 ```mermaid
 flowchart TB
@@ -113,3 +115,54 @@ flowchart TB
     S_Pay ===>|pub| T_PayComp
     T_PayComp ===>|sub| S_Driver
 ```
+> Synchrone Kommunikation (REST): Der Request Service kommuniziert direkt mit dem GPS Tracking und Pricing Service, um dem User sofortige Preis- und Zeitschätzungen zu liefern.
+
+> Asynchrone Kommunikation (Event-Streaming): Über Kafka werden kritische Events wie Topic: Request oder Topic: Payment Completion entkoppelt verarbeitet. Dies erhöht die Fehlertoleranz und Skalierbarkeit des Gesamtsystems.
+
+## 3. SAGA Transaktion & Fehlerbehandlung
+
+Um die Datenkonsistenz über mehrere Services hinweg zu garantieren, implementiert das System eine SAGA Transaktion für den Ride-Prozess:
+
+> Schritt: Ride Status meldet Fahrtabschluss an Kafka.
+> Schritt: Payment Service konsumiert das Event und führt die Bezahlung aus.
+> Schritt: Driver Service empfängt die Erfolgsmeldung und setzt den Fahrer wieder auf "verfügbar".
+
+Compensating Transaction:
+Schlägt die Bezahlung fehl (z.B. Konto nicht gedeckt), sendet der Payment Service ein Payment Failed Event. Der Driver Service reagiert darauf mit einer Kompensations-Logik, die den Status des Fahrers korrigiert und ggf. eine manuelle Prüfung einleitet, statt den Fahrer einfach freizugeben.
+
+## 4. Kubernetes Deployment & Containerisierung
+
+Das System ist vollständig für den Betrieb in einem Kubernetes-Cluster orchestriert.
+
+* **Cluster Status:** [Screenshot Kubectl Output](./assets/images/k8s_status.png)
+    * Zeigt alle Deployments, Services und Pods im Namespace `ride-sharing`.
+* **Containerisierung:** Beispielhaftes Dockerfile (Best Practices): [Request Service Dockerfile](./services/request-service/Dockerfile)
+* **Datenbank-Deployment:** Die MongoDB läuft als eigenständiges Deployment innerhalb des Clusters: [MongoDB Manifest](./kubernetes/mongodb-deployment.yaml)
+
+## 5. Zero-Downtime Update
+
+Wir garantieren eine 100%ige Verfügbarkeit während Software-Updates durch den Einsatz von **Rolling Updates**.
+
+* **Video-Demo:** [Screen Recording: Zero-Downtime Update](./assets/video/zero_downtime.mp4)
+* **Erklärung:** Das Video zeigt, wie der `gps-service` aktualisiert wird, während ein Client-Script kontinuierlich Anfragen sendet. Dank der Kubernetes-Orchestrierung gibt es keine Verbindungsabbrüche (Zero Downtime).
+
+---
+
+## 6. Big Data Analytics (Batch Processing)
+
+Ein periodischer Spark-Batch-Job analysiert historische Fahrtdaten, um geschäftskritische Kennzahlen zu berechnen.
+
+* **Quellcode:** [PySpark Analytics Job](./assets/spark/main.py)
+* **Datenquelle:** Historische Zahlungsdaten aus der MongoDB Collection `payments`.
+* **Berechnungs-Logik (Spark):**
+    ![Aggregations Code](./assets/images/agg_code.png)
+* **Execution Logs:**
+    ![Spark Logs](./assets/images/spark_logs.png)
+* **NoSQL Ergebnisse:** Die Ergebnisse werden in die Collection `analytics_results` zurückgeschrieben und stehen dort für Services wie den `Pricing Service` zur Verfügung:
+    ![NoSQL Results](./assets/images/no_sql.png)
+
+---
+
+## 7. Noteworthy (Besonderheiten)
+
+Aufgrund der begrenzten Hardware-Ressourcen im Ziel-Cluster wurde die MongoDB als zustandsloses Deployment konfiguriert. Dies erforderte eine besonders robuste Implementierung des Spark-Connectors (via Spark Connect) und eine effiziente Steuerung der Port-Forward-Verbindungen während der Analysephase.
