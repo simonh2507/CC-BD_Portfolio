@@ -22,7 +22,7 @@ spec:
           env:
             # MongoDB
             - name: MONGODB_URL
-              value: mongodb://mongodb:27017
+              value: mongodb://mongodb.ride-sharing.svc.cluster.local:27017
             - name: MONGODB_DB_NAME
               value: driverdb
             # Kafka
