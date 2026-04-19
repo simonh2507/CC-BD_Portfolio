@@ -1,0 +1,4 @@
+pyspark[connect]==4.0.0
+python-dotenv
+pymongo
+pandas
