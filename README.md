@@ -1,6 +1,7 @@
 # CC-BD_Portfolio
 
 Smart Mobility Plattform: Microservice-basiertes Ride-Sharing-System (Uber-Stil). Kernfeatures: SAGA-Transaktionen mit Compensation, synchrone/event-basierte Kommunikation. Orchestriert via Kubernetes inkl. Docker-Containerisierung, Zero-Downtime Updates und dedizierter Datenbank-Deployments.
+GitHub Repo: https://github.com/simonh2507/CC-BD_Portfolio
 
 ## 1. User stories
 
@@ -137,7 +138,7 @@ Das System ist vollständig für den Betrieb in einem Kubernetes-Cluster orchest
 * **Cluster Status:** [Screenshot Kubectl Output](./assets/images/k8s_status.png)
     * Zeigt alle Deployments, Services und Pods im Namespace `ride-sharing`.
 * **Containerisierung:** Beispielhaftes Dockerfile (Best Practices): [Request Service Dockerfile](./services/request-service/Dockerfile)
-* **Datenbank-Deployment:** Die MongoDB läuft als eigenständiges Deployment innerhalb des Clusters: [MongoDB Manifest](./kubernetes/mongodb-deployment.yaml)
+* **Datenbank-Deployment:** Die MongoDB läuft als eigenständiges Deployment innerhalb des Clusters: [MongoDB Manifest](./k8s/mongodb-deployment.yaml)
 
 ## 5. Zero-Downtime Update
 
