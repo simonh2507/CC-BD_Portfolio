@@ -18,7 +18,10 @@ class KafkaConsumerManager:
 
     def start(self) -> None:
         self._consumer = Consumer(self._conf)
-        self._consumer.subscribe([config.KAFKA_TOPIC_RIDE_ACCEPTED])
+        self._consumer.subscribe([
+            config.KAFKA_TOPIC_RIDE_ACCEPTED,
+            config.KAFKA_TOPIC_PAYMENT_FAILED,
+        ])
         self.running = True
         self._thread.start()
         logger.info(f"Ride Service subscribed to [{config.KAFKA_TOPIC_RIDE_ACCEPTED}]")
@@ -73,5 +76,9 @@ class KafkaConsumerManager:
             key=str(ride_id),
             payload={"ride_id": ride_id, "driver_id": driver_id, "fare_amount": 15.50}
         )
+
+    async def _handle_payment_failed(self, payload: dict):
+        ride_id = payload.get("ride_id")
+        db_manager.update_ride_status(ride_id, "CANCELLED")
 
 kafka_consumer = KafkaConsumerManager(config.CONSUMER_CONFIG)

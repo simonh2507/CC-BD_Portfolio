@@ -1,7 +1,7 @@
 import os
 
 # ---- MongoDB ----
-MONGODB_URL = os.getenv("MONGODB_URL", "mongodb://driver-db:27017")
+MONGODB_URL = os.getenv("MONGODB_URL", "mongodb://mongodb:27017")
 MONGODB_DB_NAME = os.getenv("MONGODB_DB_NAME", "driverdb")
 
 # ---- Kafka ----
