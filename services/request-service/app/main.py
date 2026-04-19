@@ -59,23 +59,21 @@ def health_check(response: Response):
 
 @app.get("/ride-info", status_code=status.HTTP_200_OK)
 async def get_ride_info(start: str, destination: str):
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=5.0) as client:
         try:
-            response = await client.get(
+            gps_resp = await client.get(
                 f"{config.GPS_SERVICE_URL}/estimated-driving-time",
                 params={"origin": start, "destination": destination},
             )
-            response.raise_for_status()
-            gps_data = response.json()
-            ride_time_seconds = gps_data.get("estimated_seconds")
+            gps_resp.raise_for_status()
+            ride_time_seconds = gps_resp.json().get("estimated_seconds", 0)
 
-            pricing_response = await client.get(
+            pricing_resp = await client.get(
                 f"{config.PRICING_SERVICE_URL}/calculate-price",
-                params={"ride_time_seconds":ride_time_seconds},
+                params={"ride_time_seconds": ride_time_seconds},
             )    
-            pricing_response.raise_for_status()
-            pricing_data = pricing_response.json()
-            final_price = pricing_data.get("price_euro")
+            pricing_resp.raise_for_status()
+            final_price = pricing_resp.json().get("price_euro", 0.0)
 
             return {
                 "start": start,
@@ -85,18 +83,13 @@ async def get_ride_info(start: str, destination: str):
             }
         
         except httpx.HTTPStatusError as e:
-            logger.error(f"GPS service error: {e}")
-            raise HTTPException(
-                status_code=e.response.status_code, detail="Error from GPS service"
-            )
+            service_name = "GPS" if "estimated-driving-time" in str(e.request.url) else "Pricing"
+            logger.error(f"{service_name} service returned HTTP error: {e}")
+            raise HTTPException(status_code=e.response.status_code, detail=f"Error from {service_name} service")
+            
         except httpx.RequestError as e:
-            logger.error(f"Could not connect to GPS service: {e}")
-            raise HTTPException(
-                status_code=503, detail="GPS service unavailable"
-            )
-        except httpx.HTTPStatusError as e:
-            logger.error(f"Pricing service error: {e}")
-            raise HTTPException(status_code=e.response.status_code, detail="Error from Pricing service")
+            logger.error(f"Network error while calling internal services: {e}")
+            raise HTTPException(status_code=503, detail="Dependent service (GPS/Pricing) is unavailable")
 
 
 @app.post("/ride-requests", status_code=status.HTTP_202_ACCEPTED)
