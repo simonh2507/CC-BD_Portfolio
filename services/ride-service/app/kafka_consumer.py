@@ -61,12 +61,13 @@ class KafkaConsumerManager:
         
         logger.info(f"Ride {ride_id} ACTIVE with driver {driver_id}.")
         db_manager.update_ride_status(ride_id, "ACTIVE", driver_id)
-        
-        time.sleep(10) 
-        
-        logger.info(f"Ride {ride_id} COMPLETED. Forwarding to Payment.")
-        db_manager.update_ride_status(ride_id, "COMPLETED")
-
+        fare = payload.get("fare_amount", 0.0)
+        kafka_producer.produce(
+            topic=config.KAFKA_TOPIC_RIDE_COMPLETED,
+            key=str(ride_id),
+            payload={"ride_id": ride_id, "driver_id": driver_id,
+                 "fare_amount": fare}
+        )
         try:
             kafka_producer.produce(
             topic=config.KAFKA_TOPIC_RIDE_COMPLETED,
