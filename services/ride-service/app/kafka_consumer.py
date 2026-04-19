@@ -35,7 +35,7 @@ class KafkaConsumerManager:
         while self.running:
             try:
                 msg = self._consumer.poll(1.0)
-                if msg is None: continue
+                if msg is None:continue
                 if msg.error():
                     if msg.error().code() == KafkaError._PARTITION_EOF: continue
                     raise KafkaException(msg.error())
@@ -47,9 +47,10 @@ class KafkaConsumerManager:
                 topic = msg.topic()
                 
                 if topic == config.KAFKA_TOPIC_RIDE_ACCEPTED:
-                    # Starte die Fahrtsimulation in einem eigenen Thread, 
-                    # damit Kafka nicht blockiert wird!
                     threading.Thread(target=self._simulate_ride, args=(payload,), daemon=True).start()
+
+                elif topic == config.KAFKA_TOPIC_PAYMENT_FAILED:
+                    self._handle_payment_failed(payload)
 
             except Exception as e:
                 logger.error(f"Consumer Error: {e}")
@@ -61,24 +62,27 @@ class KafkaConsumerManager:
         logger.info(f"Ride {ride_id} ACTIVE with driver {driver_id}.")
         db_manager.update_ride_status(ride_id, "ACTIVE", driver_id)
         
-        # Simuliere die Dauer der Fahrt (z.B. GPS-Abfrage)
-        time.sleep(10) # 10 Sekunden fiktive Fahrzeit
+        time.sleep(10) 
         
-        # Fahrt beendet
         logger.info(f"Ride {ride_id} COMPLETED. Forwarding to Payment.")
         db_manager.update_ride_status(ride_id, "COMPLETED")
-        
-        # Event an Payment Service schicken
-        # Hinweis: Wir faken hier einen fixen Preis von 15.50 für die Demo, 
-        # normalerweise käme der vom Pricing-Service.
-        kafka_producer.produce(
+
+        try:
+            kafka_producer.produce(
             topic=config.KAFKA_TOPIC_RIDE_COMPLETED,
             key=str(ride_id),
             payload={"ride_id": ride_id, "driver_id": driver_id, "fare_amount": 15.50}
         )
+        except Exception as e:
+            logger.error(f"Kafka publish failed for ride '{ride_id}': {e}. "
+                f"Setting status to PAYMENT_ERROR.")
+            db_manager.update_ride_status(ride_id, "PAYMENT_ERROR")
 
-    async def _handle_payment_failed(self, payload: dict):
+    def _handle_payment_failed(self, payload: dict) -> None:
         ride_id = payload.get("ride_id")
+        if not ride_id:
+            return
         db_manager.update_ride_status(ride_id, "CANCELLED")
+        logger.warning(f"[SAGA compensation] Ride '{ride_id}' set to CANCELLED.")
 
 kafka_consumer = KafkaConsumerManager(config.CONSUMER_CONFIG)
