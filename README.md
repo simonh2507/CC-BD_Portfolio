@@ -3,7 +3,7 @@
 Smart Mobility Plattform: Microservice-basiertes Ride-Sharing-System (Uber-Stil). Kernfeatures: SAGA-Transaktionen mit Compensation, synchrone/event-basierte Kommunikation. Orchestriert via Kubernetes inkl. Docker-Containerisierung, Zero-Downtime Updates und dedizierter Datenbank-Deployments.
 GitHub Repo: https://github.com/simonh2507/CC-BD_Portfolio
 
-## 1. User stories
+## 1. 1. User stories
 
 ### User Story 1 & 2
 
@@ -53,7 +53,9 @@ sequenceDiagram
 >
 > > Das System analysiert regelmäßig historische Daten (z.B. Fahrten der letzten 24h) in einem Batch-Job. Die Ergebnisse werden in einer NoSQL-Datenbank gespeichert und können von anderen Services (z.B. Pricing) abgefragt werden.
 
-## 2. Architektur
+## 2. 2. Architektur
+
+> Die Plattform besteht aus spezialisierten Microservices, die über ein hybrides Kommunikationsmodell (Synchron/Asynchron) interagieren.
 
 > Die Plattform besteht aus spezialisierten Microservices, die über ein hybrides Kommunikationsmodell (Synchron/Asynchron) interagieren.
 

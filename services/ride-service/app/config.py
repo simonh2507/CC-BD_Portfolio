@@ -8,6 +8,7 @@ GPS_SERVICE_URL = os.getenv("GPS_SERVICE_URL", "http://gps-service:80")
 # Topics
 KAFKA_TOPIC_RIDE_ACCEPTED = os.getenv("KAFKA_TOPIC_RIDE_ACCEPTED", "rides.fct.ride.accepted")
 KAFKA_TOPIC_RIDE_COMPLETED = os.getenv("KAFKA_TOPIC_RIDE_COMPLETED", "rides.fct.ride.completed")
+KAFKA_TOPIC_PAYMENT_FAILED = os.getenv("KAFKA_TOPIC_PAYMENT_FAILED", "rides.fct.payment.failed")
 
 CONSUMER_CONFIG = {
     "bootstrap.servers": KAFKA_BOOTSTRAP_SERVERS,
