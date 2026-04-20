@@ -3,7 +3,7 @@
 Smart Mobility Plattform: Microservice-basiertes Ride-Sharing-System (Uber-Stil). Kernfeatures: SAGA-Transaktionen mit Compensation, synchrone/event-basierte Kommunikation. Orchestriert via Kubernetes inkl. Docker-Containerisierung, Zero-Downtime Updates und dedizierter Datenbank-Deployments.
 GitHub Repo: https://github.com/simonh2507/CC-BD_Portfolio
 
-## 1. 1. User stories
+## 1. User stories
 
 ### User Story 1 & 2
 
@@ -53,7 +53,7 @@ sequenceDiagram
 >
 > > Das System analysiert regelmäßig historische Daten (z.B. Fahrten der letzten 24h) in einem Batch-Job. Die Ergebnisse werden in einer NoSQL-Datenbank gespeichert und können von anderen Services (z.B. Pricing) abgefragt werden.
 
-## 2. 2. Architektur
+## 2. Architektur
 
 > Die Plattform besteht aus spezialisierten Microservices, die über ein hybrides Kommunikationsmodell (Synchron/Asynchron) interagieren.
 
@@ -149,8 +149,6 @@ Wir garantieren eine 100%ige Verfügbarkeit während Software-Updates durch den 
 * **Video-Demo:** [Screen Recording: Zero-Downtime Update](./assets/video/zero_downtime.mp4)
 * **Erklärung:** Das Video zeigt, wie der `gps-service` aktualisiert wird, während ein Client-Script kontinuierlich Anfragen sendet. Dank der Kubernetes-Orchestrierung gibt es keine Verbindungsabbrüche (Zero Downtime).
 
----
-
 ## 6. Big Data Analytics (Batch Processing)
 
 Ein periodischer Spark-Batch-Job analysiert historische Fahrtdaten, um geschäftskritische Kennzahlen zu berechnen.
@@ -163,8 +161,6 @@ Ein periodischer Spark-Batch-Job analysiert historische Fahrtdaten, um geschäft
     ![Spark Logs](./assets/images/spark_logs.png)
 * **NoSQL Ergebnisse:** Die Ergebnisse werden in die Collection `analytics_results` zurückgeschrieben und stehen dort für Services wie den `Pricing Service` zur Verfügung:
     ![NoSQL Results](./assets/images/no_sql.png)
-
----
 
 ## 7. Noteworthy (Besonderheiten)
 
