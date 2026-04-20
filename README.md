@@ -137,7 +137,7 @@ Schlägt die Bezahlung fehl (z.B. Konto nicht gedeckt), sendet der Payment Servi
 
 Das System ist vollständig für den Betrieb in einem Kubernetes-Cluster orchestriert.
 
-* **Cluster Status:** [Screenshot Kubectl Output](./assets/images/k8s_status.png)
+* **Cluster Status:** [Screenshot Kubectl Output](./assets/images/kubectl_status.png)
     * Zeigt alle Deployments, Services und Pods im Namespace `ride-sharing`.
 * **Containerisierung:** Beispielhaftes Dockerfile (Best Practices): [Request Service Dockerfile](./services/request-service/Dockerfile)
 * **Datenbank-Deployment:** Die MongoDB läuft als eigenständiges Deployment innerhalb des Clusters: [MongoDB Manifest](./k8s/mongodb-deployment.yaml)
