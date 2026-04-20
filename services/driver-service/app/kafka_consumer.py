@@ -48,6 +48,9 @@ class KafkaConsumerManager:
         )
         try:
             while self.running:
+                if self._consumer is None:
+                    break
+
                 msg = self._consumer.poll(timeout=1.0)
                 if msg is None:
                     continue
@@ -61,7 +64,10 @@ class KafkaConsumerManager:
                     payload = json.loads(msg.value().decode("utf-8"))
                     logger.info(f"Received on topic '{topic}': {payload}")
 
-                    # FIX: Sichere Übergabe der asynchronen Handler an den Haupt-Loop!
+                    if self._main_loop is None:
+                        logger.error("Main loop is not initialized. Cannot process message.")
+                        continue
+
                     if topic == config.KAFKA_TOPIC_RIDE_REQUEST:
                         asyncio.run_coroutine_threadsafe(self._handle_ride_request(payload), self._main_loop)
                     elif topic == config.KAFKA_TOPIC_PAYMENT_COMPLETED:
@@ -74,7 +80,9 @@ class KafkaConsumerManager:
                         f"Error processing message from topic '{topic}': {e}"
                     )
         finally:
-            self._consumer.close()
+            # Linter-Sicherheitscheck vor dem Close
+            if self._consumer is not None:
+                self._consumer.close()
 
     # ------------------------------------------------------------------
     # Handlers (Bleiben async, da sie Motor/MongoDB nutzen)
