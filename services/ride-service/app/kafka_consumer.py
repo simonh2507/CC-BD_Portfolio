@@ -61,22 +61,26 @@ class KafkaConsumerManager:
         
         logger.info(f"Ride {ride_id} ACTIVE with driver {driver_id}.")
         db_manager.update_ride_status(ride_id, "ACTIVE", driver_id)
-        fare = payload.get("fare_amount", 0.0)
-        kafka_producer.produce(
-            topic=config.KAFKA_TOPIC_RIDE_COMPLETED,
-            key=str(ride_id),
-            payload={"ride_id": ride_id, "driver_id": driver_id,
-                 "fare_amount": fare}
-        )
+        
+        time.sleep(10)
+        
+        logger.info(f"Ride {ride_id} COMPLETED. Forwarding to Payment.")
+        db_manager.update_ride_status(ride_id, "COMPLETED")
+        
+        fare = payload.get("fare_amount")
+        if fare is None:
+            logger.warning(f"No 'fare_amount' received for ride {ride_id}. Using fallback price 15.50")
+            fare = 15.50
+
         try:
             kafka_producer.produce(
-            topic=config.KAFKA_TOPIC_RIDE_COMPLETED,
-            key=str(ride_id),
-            payload={"ride_id": ride_id, "driver_id": driver_id, "fare_amount": 15.50}
-        )
+                topic=config.KAFKA_TOPIC_RIDE_COMPLETED,
+                key=str(ride_id),
+                payload={"ride_id": ride_id, "driver_id": driver_id, "fare_amount": fare}
+            )
         except Exception as e:
             logger.error(f"Kafka publish failed for ride '{ride_id}': {e}. "
-                f"Setting status to PAYMENT_ERROR.")
+                        f"Setting status to PAYMENT_ERROR.")
             db_manager.update_ride_status(ride_id, "PAYMENT_ERROR")
 
     def _handle_payment_failed(self, payload: dict) -> None:
