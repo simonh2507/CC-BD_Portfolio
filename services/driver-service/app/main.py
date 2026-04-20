@@ -10,7 +10,7 @@ from .database import close_db, init_db, is_connected
 from .kafka_consumer import kafka_consumer
 from .kafka_producer import kafka_producer
 
-# ---- Logging — identical setup to all other services ----
+# ---- Logging ----
 console_handler = logging.StreamHandler(sys.stdout)
 console_handler.setFormatter(
     DefaultFormatter("%(levelprefix)s %(name)s | %(message)s")
@@ -20,9 +20,7 @@ logging.root.setLevel(logging.INFO)
 
 logger = logging.getLogger(__name__)
 
-
 # ---- Lifespan ----
-
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     await init_db()
@@ -33,25 +31,16 @@ async def lifespan(_: FastAPI):
     kafka_producer.stop()
     await close_db()
 
-
 # ---- App ----
-
 app = FastAPI(title="Driver Service", lifespan=lifespan)
 
-
 # ---- Routes ----
-
 @app.get("/ping")
 def ping():
     return {"status": "ok"}
 
-
 @app.get("/health")
 async def health_check(response: Response):
-    """
-    Reports connectivity to Kafka (producer ping) and MongoDB (client presence).
-    Returns 503 if either dependency is unavailable.
-    """
     kafka_up = kafka_producer.is_connected()
     mongo_up = is_connected()
     overall_ok = kafka_up and mongo_up
@@ -68,12 +57,9 @@ async def health_check(response: Response):
         },
     }
 
-
 @app.get("/drivers")
 async def list_drivers():
-    """Return the current status of all drivers (observability)."""
     return {"drivers": await state.get_all_drivers()}
-
 
 @app.get("/drivers/{driver_id}")
 async def get_driver(driver_id: str):
@@ -84,16 +70,12 @@ async def get_driver(driver_id: str):
         )
     return driver
 
-
 @app.get("/rides/pending")
 async def list_pending_rides():
-    """Return all ride requests currently awaiting driver acceptance."""
     return {"pending_rides": await state.get_all_pending_requests()}
-
 
 @app.post("/rides/{ride_id}/accept", status_code=status.HTTP_200_OK)
 async def accept_ride(ride_id: str, driver_id: str):
-
     # 1. Verify ride is pending
     ride_data = await state.get_pending_request(ride_id)
     if not ride_data:
@@ -109,24 +91,22 @@ async def accept_ride(ride_id: str, driver_id: str):
             status_code=404, detail=f"Driver '{driver_id}' not found."
         )
 
-    # 3. Atomic assignment — returns False if driver is already on_ride
+    # 3. Atomic assignment
     assigned = await state.assign_driver(driver_id, ride_id)
     if not assigned:
         raise HTTPException(
             status_code=409,
-            detail=(
-                f"Driver '{driver_id}' is currently unavailable "
-                f"(status is not 'available')."
-            ),
+            detail=f"Driver '{driver_id}' is currently unavailable.",
         )
 
-    # 4. Publish ride accepted event to Kafka
+    # 4. Publish ride accepted event to Kafka (FIX: fare_amount hinzugefügt!)
     event_payload = {
         "ride_id":     ride_id,
         "driver_id":   driver_id,
         "driver_name": driver["name"],
         "start":       ride_data.get("start"),
         "destination": ride_data.get("destination"),
+        "fare_amount": ride_data.get("fare_amount"), # <--- HIER IST DER FIX
     }
 
     try:
@@ -140,7 +120,6 @@ async def accept_ride(ride_id: str, driver_id: str):
             f"Event published to '{config.KAFKA_TOPIC_RIDE_ACCEPTED}'."
         )
     except Exception as e:
-        # Roll back the MongoDB assignment so the driver is not stuck
         await state.release_driver_by_ride(ride_id)
         logger.error(
             f"Kafka publish failed for ride '{ride_id}': {e}. "
