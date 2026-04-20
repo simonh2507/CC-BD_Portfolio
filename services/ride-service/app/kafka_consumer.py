@@ -68,8 +68,7 @@ class KafkaConsumerManager:
         db_manager.update_ride_status(ride_id, "COMPLETED")
         
         fare = payload.get("fare_amount")
-        if fare is None:
-            logger.warning(f"No 'fare_amount' received for ride {ride_id}. Using fallback price 15.50")
+        if not fare:
             fare = 15.50
 
         try:
@@ -79,8 +78,7 @@ class KafkaConsumerManager:
                 payload={"ride_id": ride_id, "driver_id": driver_id, "fare_amount": fare}
             )
         except Exception as e:
-            logger.error(f"Kafka publish failed for ride '{ride_id}': {e}. "
-                        f"Setting status to PAYMENT_ERROR.")
+            logger.error(f"Kafka publish failed for ride '{ride_id}': {e}. Setting status to PAYMENT_ERROR.")
             db_manager.update_ride_status(ride_id, "PAYMENT_ERROR")
 
     def _handle_payment_failed(self, payload: dict) -> None:
