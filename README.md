@@ -57,8 +57,6 @@ sequenceDiagram
 
 > Die Plattform besteht aus spezialisierten Microservices, die über ein hybrides Kommunikationsmodell (Synchron/Asynchron) interagieren.
 
-> Die Plattform besteht aus spezialisierten Microservices, die über ein hybrides Kommunikationsmodell (Synchron/Asynchron) interagieren.
-
 ```mermaid
 flowchart TB
     classDef k8s fill:transparent,stroke:#0ea5e9,stroke-width:2px,stroke-dasharray: 5 5
@@ -126,9 +124,11 @@ flowchart TB
 
 Um die Datenkonsistenz über mehrere Services hinweg zu garantieren, implementiert das System eine SAGA Transaktion für den Ride-Prozess:
 
-> Schritt: Ride Status meldet Fahrtabschluss an Kafka.
-> Schritt: Payment Service konsumiert das Event und führt die Bezahlung aus.
-> Schritt: Driver Service empfängt die Erfolgsmeldung und setzt den Fahrer wieder auf "verfügbar".
+> Ride Status meldet Fahrtabschluss an Kafka.
+
+> Payment Service konsumiert das Event und führt die Bezahlung aus.
+
+> Driver Service empfängt die Erfolgsmeldung und setzt den Fahrer wieder auf "verfügbar".
 
 Compensating Transaction:
 Schlägt die Bezahlung fehl (z.B. Konto nicht gedeckt), sendet der Payment Service ein Payment Failed Event. Der Driver Service reagiert darauf mit einer Kompensations-Logik, die den Status des Fahrers korrigiert und ggf. eine manuelle Prüfung einleitet, statt den Fahrer einfach freizugeben.
